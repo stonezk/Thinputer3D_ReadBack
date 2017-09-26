@@ -1,0 +1,711 @@
+# $Id: Makefile.kmk $
+## @file
+# Sub-Makefile for the VirtualBox Guest OpenGL part
+#
+
+#
+# Copyright (C) 2008-2015 Oracle Corporation
+#
+# This file is part of VirtualBox Open Source Edition (OSE), as
+# available from http://www.virtualbox.org. This file is free software;
+# you can redistribute it and/or modify it under the terms of the GNU
+# General Public License (GPL) as published by the Free Software
+# Foundation, in version 2 as it comes in the "COPYING" file of the
+# VirtualBox OSE distribution. VirtualBox OSE is distributed in the
+# hope that it will be useful, but WITHOUT ANY WARRANTY of any kind.
+#
+
+SUB_DEPTH = ../../../../..
+include $(KBUILD_PATH)/subheader.kmk
+
+#
+# Target lists.
+#
+BLDDIRS += \
+	$(VBOX_PATH_CROGL_GENFILES)/
+
+if1of ($(KBUILD_TARGET), win linux solaris freebsd)
+ DLLS += \
+    ThinputerOGL \
+    ThinputerOGLarrayspu \
+    ThinputerOGLpassthroughspu \
+    ThinputerOGLpackspu \
+    ThinputerOGLfeedbackspu
+endif
+
+VBOX_OGL_X86_GUEST_DLLS = \
+     ThinputerOGL-x86 \
+     ThinputerOGLarrayspu-x86 \
+     ThinputerOGLpassthroughspu-x86 \
+     ThinputerOGLpackspu-x86 \
+     ThinputerOGLfeedbackspu-x86
+
+ifdef VBOX_WITH_WDDM
+ DLLS.win.amd64 += $(VBOX_OGL_X86_GUEST_DLLS)
+endif
+
+if1of ($(KBUILD_TARGET), linux solaris freebsd)
+ #VBoxOGL_DRI = 1
+ ifn1of ($(KBUILD_TARGET),solaris)   # No DRI on Solaris yet
+  VBoxOGL_FAKEDRI = 1
+ endif
+
+ # Only Solaris right now needs C stubs because I can't figure out how to
+ # generate the GOT based relocation ASM yet.
+ ifdef VBoxOGL_FAKEDRI
+  if1of ($(KBUILD_TARGET).$(KBUILD_TARGET_ARCH),solaris.x86 solaris.amd64 linux.x86 linux.amd64 freebsd.x86 freebsd.amd64)
+   VBOX_OGL_GLX_USE_CSTUBS = 1
+  endif
+ endif
+endif
+
+
+#
+# ThinputerOGL
+#
+ThinputerOGL_TEMPLATE       = VBOXCROGLR3GUESTDLL
+ThinputerOGL_INCS           = .
+if1of ($(KBUILD_TARGET), linux solaris freebsd)
+ ThinputerOGL_INCS     += \
+	$(VBOX_PATH_X11_ROOT)/libXdamage-1.1 \
+	$(VBOX_PATH_X11_ROOT)/libXcomposite-0.4.0 \
+	$(VBOX_PATH_X11_ROOT)/libXext-1.3.1 \
+	$(VBOX_PATH_X11_ROOT)/libXfixes-4.0.3 \
+	$(VBOX_PATH_X11_ROOT)/damageproto-1.1.0 \
+	$(VBOX_PATH_X11_ROOT)/compositeproto-0.4 \
+	$(VBOX_PATH_X11_ROOT)/fixesproto-4.0 \
+	$(VBOX_PATH_X11_ROOT)/libx11-1.1.5-other \
+	$(VBOX_PATH_X11_ROOT)/xextproto-7.1.1 \
+	$(VBOX_PATH_X11_ROOT)/xproto-7.0.18 \
+	$(VBOX_MESA_INCS) \
+	$(PATH_ROOT)/src/VBox/Additions/x11/x11include/libdrm-2.4.13
+ ThinputerOGL_DEFS     += VBOX_NO_NATIVEGL
+endif
+
+ifdef VBoxOGL_DRI
+ ThinputerOGL_DEFS          += VBOXOGL_DRI IN_DRI_DRIVER
+else ifdef VBoxOGL_FAKEDRI
+ ThinputerOGL_DEFS          += VBOXOGL_FAKEDRI
+ ifdef VBOX_OGL_GLX_USE_CSTUBS
+  ThinputerOGL_DEFS         += VBOX_OGL_GLX_USE_CSTUBS
+ endif
+endif
+
+ifdef VBOX_WITH_WDDM
+ ThinputerOGL_DEFS.win += VBOX_WITH_WDDM
+ ThinputerOGL_SDKS.win += $(VBOX_WINDDK_GST_WLH)
+endif
+
+ifeq ($(KBUILD_TARGET),win)
+#fixme?, INTERMEDIATES.win ain't working
+ ThinputerOGL_INTERMEDIATES += $(VBOX_PATH_CROGL_GENFILES)/cr_gl.h
+ if defined(VBOX_SIGNING_MODE) && defined(VBOX_WITH_WDDM)
+  ThinputerOGL_INSTTYPE.win = none
+  ThinputerOGL_DEBUG_INSTTYPE.win = both
+ endif
+endif
+ifdef VBoxOGL_DRI
+ ThinputerOGL_INTERMEDIATES += \
+	$(VBOX_PATH_CROGL_GENFILES)/cr_gl.h \
+	$(VBOX_PATH_CROGL_GENFILES)/DD_gl.h
+else ifdef VBoxOGL_FAKEDRI
+ ThinputerOGL_INTERMEDIATES += \
+	$(VBOX_PATH_CROGL_GENFILES)/cr_gl.h
+endif
+ThinputerOGL_SOURCES       += \
+	load.c \
+	stub.c \
+	context.c \
+	smem.c \
+	smem_win.c \
+	smem_layout.c \
+	$(VBOX_PATH_CROGL_GENFILES)/getprocaddress.c \
+	$(VBOX_PATH_CROGL_GENFILES)/NULLfuncs.c \
+	$(VBOX_PATH_CROGL_GENFILES)/tsfuncs.c
+
+if1of ($(KBUILD_TARGET), linux solaris freebsd)
+ ThinputerOGL_SOURCES += \
+	glx.c \
+	xfont.c
+ ifdef VBOX_OGL_GLX_USE_CSTUBS
+  ThinputerOGL_SOURCES += glx_c_exports.c
+ endif
+
+ ifdef VBoxOGL_DRI
+  ThinputerOGL_SOURCES += \
+ 	$(VBOX_PATH_CROGL_GENFILES)/DD_gl.c \
+ 	dri_drv.c
+  ThinputerOGL_SOURCES.linux += \
+ 	$(VBOX_PATH_CROGL_GENFILES)/linux_exports_dri.asm
+  ThinputerOGL_SOURCES.solaris += \
+ 	$(VBOX_PATH_CROGL_GENFILES)/solaris_exports_dri.asm
+  ThinputerOGL_SOURCES.freebsd += \
+ 	$(VBOX_PATH_CROGL_GENFILES)/freebsd_exports_dri.asm
+ else ifdef VBoxOGL_FAKEDRI
+  ThinputerOGL_SOURCES += \
+ 	fakedri_drv.c
+  ifndef VBOX_OGL_GLX_USE_CSTUBS
+   ThinputerOGL_SOURCES.solaris += \
+ 	$(VBOX_PATH_CROGL_GENFILES)/solaris_glxapi_exports.asm \
+ 	$(VBOX_PATH_CROGL_GENFILES)/solaris_exports_dri.asm
+   ThinputerOGL_SOURCES.linux += \
+ 	$(VBOX_PATH_CROGL_GENFILES)/linux_glxapi_exports.asm \
+ 	$(VBOX_PATH_CROGL_GENFILES)/linux_exports_dri.asm
+   ThinputerOGL_SOURCES.freebsd += \
+ 	$(VBOX_PATH_CROGL_GENFILES)/freebsd_glxapi_exports.asm \
+ 	$(VBOX_PATH_CROGL_GENFILES)/freebsd_exports_dri.asm
+  else
+   ThinputerOGL_SOURCES.solaris += \
+  	$(VBOX_PATH_CROGL_GENFILES)/solaris_exports.c
+  ThinputerOGL_SOURCES.linux += \
+  	$(VBOX_PATH_CROGL_GENFILES)/linux_exports.c
+  ThinputerOGL_SOURCES.freebsd += \
+  	$(VBOX_PATH_CROGL_GENFILES)/freebsd_exports.c
+  endif
+ else
+  ThinputerOGL_SOURCES.linux += \
+  	$(VBOX_PATH_CROGL_GENFILES)/linux_exports.asm
+  ThinputerOGL_SOURCES.solaris += \
+  	$(VBOX_PATH_CROGL_GENFILES)/solaris_exports.c
+  ThinputerOGL_SOURCES.freebsd += \
+  	$(VBOX_PATH_CROGL_GENFILES)/freebsd_exports.c
+ endif
+endif
+
+ThinputerOGL_SOURCES.win    = \
+	wgl.c \
+	icd_drv.c \
+	VBoxCROGL.rc \
+	$(VBOX_PATH_CROGL_GENFILES)/windows_exports.asm \
+	$(VBOX_PATH_CROGL_GENFILES)/cropengl.def
+ThinputerOGL_CLEAN          = \
+	$(VBOX_PATH_CROGL_GENFILES)/getprocaddress.c \
+	$(VBOX_PATH_CROGL_GENFILES)/NULLfuncs.c \
+	$(VBOX_PATH_CROGL_GENFILES)/tsfuncs.c
+ThinputerOGL_CLEAN.linux        += \
+	$(VBOX_PATH_CROGL_GENFILES)/linux_exports.asm
+ThinputerOGL_CLEAN.solaris        += \
+	$(VBOX_PATH_CROGL_GENFILES)/solaris_exports.c
+ThinputerOGL_CLEAN.win      = \
+	$(VBOX_PATH_CROGL_GENFILES)/windows_exports.asm \
+	$(VBOX_PATH_CROGL_GENFILES)/cropengl.def
+if1of ($(KBUILD_TARGET), linux solaris)
+ ifdef VBoxOGL_DRI
+  ThinputerOGL_CLEAN   += \
+ 	$(VBOX_PATH_CROGL_GENFILES)/cr_gl.h \
+ 	$(VBOX_PATH_CROGL_GENFILES)/DD_gl.h \
+ 	$(VBOX_PATH_CROGL_GENFILES)/DD_gl.c
+ else ifdef VBoxOGL_FAKEDRI
+  ThinputerOGL_CLEAN   += \
+ 	$(VBOX_PATH_CROGL_GENFILES)/cr_gl.h
+  ThinputerOGL_CLEAN.linux   += \
+ 	$(VBOX_PATH_CROGL_GENFILES)/linux_glxapi_exports.asm
+  ThinputerOGL_CLEAN.solaris   += \
+ 	$(VBOX_PATH_CROGL_GENFILES)/solaris_glxapi_exports.asm
+ endif
+endif
+ThinputerOGL_LIBS = \
+	$(VBOX_LIB_IPRT_GUEST_R3_SHARED) \
+	$(VBOX_LIB_VBGL_R3_SHARED) \
+	$(VBOX_LIB_OGL_CRUTIL) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLspuload$(VBOX_SUFF_LIB)
+
+ThinputerOGL_LIBS.win += \
+	$(PATH_STAGE_LIB)/additions/VBoxDispMpLogger$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxCrHgsmi$(VBOX_SUFF_LIB)
+
+if1of ($(KBUILD_TARGET), linux solaris freebsd)
+ ThinputerOGL_LIBS += \
+ 	$(PATH_STAGE_LIB)/libXcomposite.so \
+ 	$(PATH_STAGE_LIB)/libXdamage.so \
+ 	$(PATH_STAGE_LIB)/libXfixes.so \
+ 	$(PATH_STAGE_LIB)/libXext.so
+ ifdef VBoxOGL_FAKEDRI
+  ifeq ($(KBUILD_TARGET), freebsd)
+    ThinputerOGL_LIBS += \
+        elf
+  else
+    ThinputerOGL_LIBS += \
+  	dl
+  endif
+ endif
+endif
+ifdef VBOX_WITH_CRHGSMI
+ThinputerOGL_DEFS.win   += VBOX_WITH_CRHGSMI
+endif
+ifdef VBOX_WITH_WDDM
+ThinputerOGL_DEFS.win   += VBOX_WITH_WDDM
+endif
+if1of ($(KBUILD_TARGET), linux)
+ThinputerOGL_LDFLAGS += -Wl,-z,nodelete
+endif
+ifdef VBOX_WITH_WDDM
+#
+# ThinputerOGL-x86 - x86 ThinputerOGL version built for amd64 build
+#
+ThinputerOGL-x86_EXTENDS = ThinputerOGL
+ThinputerOGL-x86_BLD_TRG_ARCH = x86
+ThinputerOGL-x86_LIBS = $(VBOX_LIB_IPRT_GUEST_R3_SHARED_X86) \
+	$(VBOX_LIB_VBGL_R3_SHARED_X86) \
+	$(VBOX_LIB_OGL_CRUTIL_X86) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLspuload-x86$(VBOX_SUFF_LIB)
+
+ThinputerOGL-x86_LIBS.win += \
+	$(PATH_STAGE_LIB)/additions/VBoxDispMpLogger-x86$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxCrHgsmi-x86$(VBOX_SUFF_LIB)
+
+
+ThinputerOGL-x86_SOURCES.win = $(subst cropengl.def,cropengl-x86.def,$(ThinputerOGL_SOURCES.win))
+ThinputerOGL-x86_CLEAN.win = $(subst cropengl.def,cropengl-x86.def,$(ThinputerOGL_CLEAN.win))
+ThinputerOGL-x86_DEFS = $(ThinputerOGL_DEFS) VBOX_WDDM_WOW64
+endif
+
+#
+# Generate files for VBoxOGL.
+#
+$(VBOX_PATH_CROGL_GENFILES)/NULLfuncs.c: $(PATH_SUB_CURRENT)/NULLfuncs.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+$(VBOX_PATH_CROGL_GENFILES)/tsfuncs.c: $(PATH_SUB_CURRENT)/tsfuncs.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+
+ifeq ($(KBUILD_TARGET),win)
+ # Windows
+$(VBOX_PATH_CROGL_GENFILES)/getprocaddress.c: $(PATH_SUB_CURRENT)/windows_getprocaddress.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+ ifeq ($(KBUILD_TARGET_ARCH),amd64)
+$(VBOX_PATH_CROGL_GENFILES)/cropengl.def: $(PATH_SUB_CURRENT)/defs64.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+ else
+$(VBOX_PATH_CROGL_GENFILES)/cropengl.def: $(PATH_SUB_CURRENT)/defs.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+ endif
+
+$(VBOX_PATH_CROGL_GENFILES)/cr_gl.h: $(PATH_SUB_CURRENT)/cr_gl.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+$(VBOX_PATH_CROGL_GENFILES)/windows_exports.asm: \
+		$(PATH_SUB_CURRENT)/windows_i386_exports.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+ ifdef VBOX_WITH_WDDM
+  ifeq ($(KBUILD_TARGET).$(KBUILD_TARGET_ARCH),win.amd64)
+$(VBOX_PATH_CROGL_GENFILES)/cropengl-x86.def: $(PATH_SUB_CURRENT)/defs.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+  endif #ifeq ($(KBUILD_TARGET).$(KBUILD_TARGET_ARCH),win.amd64)
+ endif #ifdef VBOX_WITH_WDDM
+
+
+else if1of ($(KBUILD_TARGET), freebsd linux solaris)
+ # FreeBSD, Linux, Solaris
+$(VBOX_PATH_CROGL_GENFILES)/getprocaddress.c: $(PATH_SUB_CURRENT)/getprocaddress.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+ if !defined(VBoxOGL_DRI) && !defined(VBoxOGL_FAKEDRI)
+  ifeq ($(KBUILD_TARGET),solaris)
+$(VBOX_PATH_CROGL_GENFILES)/solaris_exports.c: \
+		$(PATH_SUB_CURRENT)/SunOS_exports.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+  else ifeq ($(KBUILD_TARGET),freebsd)
+$(VBOX_PATH_CROGL_GENFILES)/freebsd_exports.c: \
+		$(PATH_SUB_CURRENT)/FreeBSD_exports.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+  else
+$(VBOX_PATH_CROGL_GENFILES)/linux_exports.asm: \
+		$(PATH_SUB_CURRENT)/Linux_i386_exports.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+  endif
+
+ else ifdef VBoxOGL_DRI
+$(VBOX_PATH_CROGL_GENFILES)/cr_gl.h: $(PATH_SUB_CURRENT)/cr_gl.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+$(VBOX_PATH_CROGL_GENFILES)/DD_gl.h: $(PATH_SUB_CURRENT)/DD_glh.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+$(VBOX_PATH_CROGL_GENFILES)/DD_gl.c: $(PATH_SUB_CURRENT)/DD_glc.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+  ifeq ($(KBUILD_TARGET),solaris)
+$(VBOX_PATH_CROGL_GENFILES)/solaris_exports_dri.asm: \
+		$(PATH_SUB_CURRENT)/SunOS_i386_exports_dri.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+  else ifeq ($(KBUILD_TARGET),freebsd)
+$(VBOX_PATH_CROGL_GENFILES)/freebsd_exports_dri.asm: \
+		$(PATH_SUB_CURRENT)/FreeBSD_i386_exports_dri.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+  else
+$(VBOX_PATH_CROGL_GENFILES)/linux_exports_dri.asm: \
+		$(PATH_SUB_CURRENT)/Linux_i386_exports_dri.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+  endif
+
+ else ifdef VBoxOGL_FAKEDRI
+$(VBOX_PATH_CROGL_GENFILES)/cr_gl.h: $(PATH_SUB_CURRENT)/cr_gl.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+  ifndef VBOX_OGL_GLX_USE_CSTUBS
+   ifeq ($(KBUILD_TARGET),solaris)
+$(VBOX_PATH_CROGL_GENFILES)/solaris_exports_dri.asm: \
+		$(PATH_SUB_CURRENT)/SunOS_i386_exports_dri.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+$(VBOX_PATH_CROGL_GENFILES)/solaris_glxapi_exports.asm: $(PATH_SUB_CURRENT)/SunOS_i386_glxapi_exports.py | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $<
+
+   else
+$(VBOX_PATH_CROGL_GENFILES)/linux_exports_dri.asm: \
+		$(PATH_SUB_CURRENT)/Linux_i386_exports_dri.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+$(VBOX_PATH_CROGL_GENFILES)/linux_glxapi_exports.asm: $(PATH_SUB_CURRENT)/Linux_i386_glxapi_exports.py | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $<
+   endif
+
+  else
+   ifeq ($(KBUILD_TARGET),solaris)
+$(VBOX_PATH_CROGL_GENFILES)/solaris_exports.c: \
+		$(PATH_SUB_CURRENT)/SunOS_exports.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+  else ifeq ($(KBUILD_TARGET),freebsd)
+$(VBOX_PATH_CROGL_GENFILES)/freebsd_exports.c: \
+		$(PATH_SUB_CURRENT)/FreeBSD_exports.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+  else
+$(VBOX_PATH_CROGL_GENFILES)/linux_exports.c: \
+		$(PATH_SUB_CURRENT)/Linux_exports.py \
+		$(VBOX_CROGL_API_FILES) $(PATH_SUB_CURRENT)/entrypoints.py \
+		| $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+   endif
+
+  endif # VBOX_OGL_GLX_USE_CSTUBS
+ endif
+endif
+
+#
+# ThinputerOGLarrayspu
+#
+ThinputerOGLarrayspu_TEMPLATE      = VBOXCROGLR3GUESTDLL
+ThinputerOGLarrayspu_INCS          = \
+	array
+if1of ($(KBUILD_TARGET), linux solaris freebsd)
+ ThinputerOGLarrayspu_INCS += \
+        $(VBOX_MESA_INCS)
+endif
+if defined(VBOX_SIGNING_MODE) && defined(VBOX_WITH_WDDM)
+ ThinputerOGLarrayspu_INSTTYPE.win = none
+ ThinputerOGLarrayspu_DEBUG_INSTTYPE.win = both
+endif
+ThinputerOGLarrayspu_INCS.darwin  += $(PATH_OUT)/obj/ThinputerOGL
+ThinputerOGLarrayspu_INTERMEDIATES = \
+	$(VBOX_PATH_CROGL_GENFILES)/state/cr_currentpointers.h \
+	$(VBOX_PATH_CROGL_GENFILES)/state/cr_statefuncs.h
+ThinputerOGLarrayspu_SOURCES       = \
+	array/arrayspu.c \
+	array/arrayspu_config.c \
+	array/arrayspu_init.c
+ThinputerOGLarrayspu_SOURCES.win   = \
+	array/arrayspu.def \
+	array/arrayspu.rc
+ThinputerOGLarrayspu_LIBS          = \
+	$(VBOX_LIB_OGL_CRUTIL) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLspuload$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLcrstate$(VBOX_SUFF_LIB)
+ifdef VBOX_WITH_CRHGSMI
+ThinputerOGLarrayspu_DEFS.win   += VBOX_WITH_CRHGSMI
+endif
+ifdef VBOX_WITH_WDDM
+ThinputerOGLarrayspu_DEFS.win   += VBOX_WITH_WDDM
+endif
+
+ifdef VBOX_WITH_WDDM
+#
+# ThinputerOGLarrayspu-x86 - x86 version of ThinputerOGLarrayspu built for amd64 build
+#
+ThinputerOGLarrayspu-x86_EXTENDS = ThinputerOGLarrayspu
+ThinputerOGLarrayspu-x86_BLD_TRG_ARCH = x86
+ThinputerOGLarrayspu-x86_LIBS = $(VBOX_LIB_OGL_CRUTIL_X86) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLspuload-x86$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLcrstate-x86$(VBOX_SUFF_LIB)
+ThinputerOGLarrayspu-x86_DEFS = $(ThinputerOGLarrayspu_DEFS) VBOX_WDDM_WOW64
+endif
+
+#
+# ThinputerOGLpassthroughspu
+#
+ThinputerOGLpassthroughspu_TEMPLATE    = VBOXCROGLR3GUESTDLL
+ThinputerOGLpassthroughspu_INCS        = \
+	passthrough
+if1of ($(KBUILD_TARGET), linux solaris freebsd)
+ ThinputerOGLpassthroughspu_INCS += \
+        $(VBOX_MESA_INCS)
+endif
+if defined(VBOX_SIGNING_MODE) && defined(VBOX_WITH_WDDM)
+ ThinputerOGLpassthroughspu_INSTTYPE.win = none
+ ThinputerOGLpassthroughspu_DEBUG_INSTTYPE.win = both
+endif
+ThinputerOGLpassthroughspu_SOURCES     = \
+	passthrough/passthroughspu_init.c \
+	$(VBOX_PATH_CROGL_GENFILES)/passthroughspu.c
+ThinputerOGLpassthroughspu_SOURCES.win = \
+	passthrough/passthrough.def \
+	passthrough/passthroughspu.rc
+ThinputerOGLpassthroughspu_CLEAN       = \
+	$(VBOX_PATH_CROGL_GENFILES)/passthroughspu.c
+ThinputerOGLpassthroughspu_LIBS        = \
+	$(VBOX_LIB_OGL_CRUTIL)
+ifdef VBOX_WITH_CRHGSMI
+ThinputerOGLpassthroughspu_DEFS.win   += VBOX_WITH_CRHGSMI
+endif
+ifdef VBOX_WITH_WDDM
+ThinputerOGLpassthroughspu_DEFS.win   += VBOX_WITH_WDDM
+endif
+
+ifdef VBOX_WITH_WDDM
+#
+# ThinputerOGLpassthroughspu-x86 - x86 version of ThinputerOGLpassthroughspu built for amd64 build
+#
+ThinputerOGLpassthroughspu-x86_EXTENDS = ThinputerOGLpassthroughspu
+ThinputerOGLpassthroughspu-x86_BLD_TRG_ARCH = x86
+ThinputerOGLpassthroughspu-x86_LIBS = $(VBOX_LIB_OGL_CRUTIL_X86)
+ThinputerOGLpassthroughspu-x86_DEFS = $(ThinputerOGLpassthroughspu_DEFS) VBOX_WDDM_WOW64
+endif
+
+#
+# Generate files for ThinputerOGLpassthroughspu.
+#
+$(VBOX_PATH_CROGL_GENFILES)/passthroughspu.c: $(PATH_SUB_CURRENT)/passthrough/passthrough.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI)
+
+#
+# ThinputerOGLpackspu
+#
+ThinputerOGLpackspu_TEMPLATE      = VBOXCROGLR3GUESTDLL
+ThinputerOGLpackspu_DEFS          = TRACKS_STATE=1 PACKS=1
+ThinputerOGLpackspu_INCS          = \
+	pack
+if1of ($(KBUILD_TARGET), linux solaris freebsd)
+ ThinputerOGLpackspu_INCS += \
+        $(VBOX_MESA_INCS)
+endif
+if defined(VBOX_SIGNING_MODE) && defined(VBOX_WITH_WDDM)
+ ThinputerOGLpackspu_INSTTYPE.win = none
+ ThinputerOGLpackspu_DEBUG_INSTTYPE.win = both
+endif
+ThinputerOGLpackspu_INTERMEDIATES = \
+	$(VBOX_PATH_CROGL_GENFILES)/packspu_proto.h \
+	$(VBOX_PATH_CROGL_GENFILES)/cr_packfunctions.h
+ThinputerOGLpackspu_SOURCES    = \
+	pack/packspu_bufferobject.c \
+	pack/packspu_client.c \
+	pack/packspu_config.c \
+	pack/packspu_context.c \
+	pack/packspu_getstring.c \
+	pack/packspu_init.c \
+	pack/packspu_misc.c \
+	pack/packspu_net.c \
+	pack/packspu_swapbuf.c \
+	pack/packspu_pixel.c \
+	pack/packspu_texture.c \
+	pack/packspu_getshaders.c \
+	pack/packspu_glsl.c \
+	pack/packspu_framebuffer.c \
+	pack/packspu_hook.c \
+	$(VBOX_PATH_CROGL_GENFILES)/packspu.c \
+	$(VBOX_PATH_CROGL_GENFILES)/packspu_get.c \
+	$(VBOX_PATH_CROGL_GENFILES)/packspu_flush.c \
+	$(VBOX_PATH_CROGL_GENFILES)/packspu_beginend.c
+ThinputerOGLpackspu_SOURCES.win = \
+	pack/pack.def \
+	pack/packspu.rc
+ThinputerOGLpackspu_CLEAN       = \
+	$(VBOX_PATH_CROGL_GENFILES)/packspu_proto.h \
+	$(VBOX_PATH_CROGL_GENFILES)/packspu.c \
+	$(VBOX_PATH_CROGL_GENFILES)/packspu_get.c \
+	$(VBOX_PATH_CROGL_GENFILES)/packspu_flush.c \
+	$(VBOX_PATH_CROGL_GENFILES)/packspu_beginend.c
+ThinputerOGLpackspu_LIBS        = \
+	$(VBOX_LIB_OGL_CRUTIL) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLspuload$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLcrstate$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLcrpacker$(VBOX_SUFF_LIB)
+ThinputerOGLpackspu_LIBS.win += \
+	$(PATH_STAGE_LIB)/additions/VBoxDispMpLogger$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxCrHgsmi$(VBOX_SUFF_LIB)
+
+ifdef VBOX_WITH_CRHGSMI
+ThinputerOGLpackspu_DEFS.win   += VBOX_WITH_CRHGSMI
+endif
+ifdef VBOX_WITH_CRDUMPER
+ThinputerOGLpackspu_DEFS       += VBOX_WITH_CRDUMPER
+endif
+ifdef VBOX_WITH_CRPACKSPU_DUMPER
+ThinputerOGLpackspu_DEFS       += VBOX_WITH_CRPACKSPU_DUMPER
+endif
+ifdef VBOX_WITH_WDDM
+ThinputerOGLpackspu_DEFS.win   += VBOX_WITH_WDDM
+endif
+
+ifdef VBOX_WITH_WDDM
+#
+# ThinputerOGLpackspu-x86 - x86 version of ThinputerOGLpackspu built for amd64 build
+#
+ThinputerOGLpackspu-x86_EXTENDS = ThinputerOGLpackspu
+ThinputerOGLpackspu-x86_BLD_TRG_ARCH = x86
+ThinputerOGLpackspu-x86_LIBS = $(VBOX_LIB_OGL_CRUTIL_X86) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLspuload-x86$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLcrstate-x86$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLcrpacker-x86$(VBOX_SUFF_LIB)
+ThinputerOGLpackspu-x86_LIBS.win += \
+	$(PATH_STAGE_LIB)/additions/VBoxDispMpLogger-x86$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxCrHgsmi-x86$(VBOX_SUFF_LIB)
+ThinputerOGLpackspu-x86_DEFS = $(ThinputerOGLpackspu_DEFS) VBOX_WDDM_WOW64
+endif
+
+#
+# Generate files for ThinputerOGLpackspu.
+#
+$(VBOX_PATH_CROGL_GENFILES)/packspu.c: $(addprefix $(PATH_SUB_CURRENT)/pack/,pack.py packspu_special packspu_unimplemented_special) $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI) $(<D)
+
+$(VBOX_PATH_CROGL_GENFILES)/packspu_get.c: $(PATH_SUB_CURRENT)/pack/packspu_get.py $(PATH_SUB_CURRENT)/pack/packspu_special $(PATH_ROOT)/src/VBox/HostServices/SharedOpenGL/crserverlib/get_sizes.py $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI) $(<D)
+
+$(VBOX_PATH_CROGL_GENFILES)/packspu_flush.c: $(PATH_SUB_CURRENT)/pack/packspu_flush.py $(PATH_SUB_CURRENT)/pack/packspu_flush_special $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI) $(<D)
+
+$(VBOX_PATH_CROGL_GENFILES)/packspu_beginend.c: $(PATH_SUB_CURRENT)/pack/packspu_beginend.py $(PATH_SUB_CURRENT)/pack/packspu_vertex_special $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI) $(<D)
+
+$(VBOX_PATH_CROGL_GENFILES)/packspu_proto.h: $(addprefix $(PATH_SUB_CURRENT)/pack/,packspu_proto.py packspu_special packspu_unimplemented_special) $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI) $(<D)
+
+#
+# ThinputerOGLfeedbackspu
+#
+ThinputerOGLfeedbackspu_TEMPLATE    = VBOXCROGLR3GUESTDLL
+ThinputerOGLfeedbackspu_INCS        = \
+	feedback
+if1of ($(KBUILD_TARGET), linux solaris freebsd)
+ ThinputerOGLfeedbackspu_INCS += \
+        $(VBOX_MESA_INCS)
+endif
+if defined(VBOX_SIGNING_MODE) && defined(VBOX_WITH_WDDM)
+ ThinputerOGLfeedbackspu_INSTTYPE.win = none
+ ThinputerOGLfeedbackspu_DEBUG_INSTTYPE.win = both
+endif
+ThinputerOGLarrayspu_INTERMEDIATES = \
+	$(VBOX_PATH_CROGL_GENFILES)/feedbackspu_proto.h
+ThinputerOGLfeedbackspu_SOURCES     = \
+	feedback/feedbackspu_config.c \
+	feedback/feedbackspu_init.c \
+	feedback/feedback_context.c \
+	$(VBOX_PATH_CROGL_GENFILES)/feedbackspu.c \
+	$(VBOX_PATH_CROGL_GENFILES)/feedbackspu_state.c
+ThinputerOGLfeedbackspu_SOURCES.win = \
+	feedback/feedback.def \
+	feedback/feedbackspu.rc
+ThinputerOGLfeedbackspu_CLEAN       = \
+	$(VBOX_PATH_CROGL_GENFILES)/feedbackspu_proto.h \
+	$(VBOX_PATH_CROGL_GENFILES)/feedbackspu.c \
+	$(VBOX_PATH_CROGL_GENFILES)/feedbackspu_state.c
+ThinputerOGLfeedbackspu_LIBS        = \
+	$(VBOX_LIB_OGL_CRUTIL) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLspuload$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLcrstate$(VBOX_SUFF_LIB)
+ifdef VBOX_WITH_CRHGSMI
+ThinputerOGLfeedbackspu_DEFS.win   += VBOX_WITH_CRHGSMI
+endif
+ifdef VBOX_WITH_WDDM
+ThinputerOGLfeedbackspu_DEFS.win   += VBOX_WITH_WDDM
+endif
+
+ifdef VBOX_WITH_WDDM
+#
+# ThinputerOGLfeedbackspu-x86 - x86 version of ThinputerOGLfeedbackspu built for amd64 build
+#
+ThinputerOGLfeedbackspu-x86_EXTENDS = ThinputerOGLfeedbackspu
+ThinputerOGLfeedbackspu-x86_BLD_TRG_ARCH = x86
+ThinputerOGLfeedbackspu-x86_LIBS = $(VBOX_LIB_OGL_CRUTIL_X86) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLspuload-x86$(VBOX_SUFF_LIB) \
+	$(PATH_STAGE_LIB)/additions/VBoxOGLcrstate-x86$(VBOX_SUFF_LIB)
+ThinputerOGLfeedbackspu-x86_DEFS = $(ThinputerOGLfeedbackspu_DEFS) VBOX_WDDM_WOW64
+endif
+
+#
+# Generate files for ThinputerOGLfeedbackspu.
+#
+$(VBOX_PATH_CROGL_GENFILES)/feedbackspu.c: $(addprefix $(PATH_SUB_CURRENT)/feedback/,feedback.py feedback_special select_special feedback_state_special) $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI) $(<D)
+
+$(VBOX_PATH_CROGL_GENFILES)/feedbackspu_state.c: $(addprefix $(PATH_SUB_CURRENT)/feedback/,feedback_state.py feedback_state_special) $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI) $(<D)
+
+$(VBOX_PATH_CROGL_GENFILES)/feedbackspu_proto.h: $(addprefix $(PATH_SUB_CURRENT)/feedback/,feedbackspu_proto.py feedback_special select_special feedback_state_special) $(VBOX_CROGL_API_FILES) | $$(dir $$@)
+	$(call MSG_GENERATE,python,$@,$<)
+	$(QUIET)$(call VBOX_CROGL_PYTHON_ENV,$(VBOX_PATH_CROGL_PYTHON_INCLUDE),$@) $(VBOX_BLD_PYTHON) $< $(VBOX_PATH_CROGL_GLAPI) $(<D)
+
+include $(FILE_KBUILD_SUB_FOOTER)
+
